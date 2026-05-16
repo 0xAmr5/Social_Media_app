@@ -31,6 +31,15 @@ class CommentService {
     SuccessResponse({ res, data: comments });
   };
 
+  getById = async (req: Request, res: Response, _next: NextFunction) => {
+    const comment = await commentModel
+      .findById(req.params.id)
+      .populate("createdBy", "userName email")
+      .lean();
+    if (!comment) ErrorNotFound("comment not found");
+    SuccessResponse({ res, data: comment });
+  };
+
   update = async (req: Request, res: Response, _next: NextFunction) => {
     const comment = await commentModel.findById(req.params.id);
     if (!comment) ErrorNotFound("comment not found");

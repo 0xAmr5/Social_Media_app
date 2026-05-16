@@ -1,17 +1,14 @@
 import z from "zod";
-import { IPost } from "../post.model";
 import availabiltyEnum from "../../../common/utils/enum/availablity.enum";
 import allowCommentsEnum from "../../../common/utils/enum/allowComments.enum";
-import { Types } from "mongoose";
 import { genRules } from "../../../common/utils/validationGeneralRules";
 
 export const createPostSchema = {
   body: z
     .strictObject({
-      content: z.string().optional,
+      content: z.string().optional(),
       attachments: z.array(genRules.file).optional(),
-      createdBy: z.string(),
-      tags: z.array(genRules.id),
+      tags: z.array(genRules.id).default([]),
       allowComments: z.enum(allowCommentsEnum).default(allowCommentsEnum.allow),
       availablity: z.enum(availabiltyEnum).default(availabiltyEnum.freinds),
     })

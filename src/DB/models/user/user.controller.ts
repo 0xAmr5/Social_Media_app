@@ -18,8 +18,10 @@ userRouter.patch(
 
 userRouter.get("/me", authenticate, userServices.getMe);
 userRouter.get("/dashboard", authenticate, authorize(["admin"]), userServices.listUsers);
+userRouter.get("/log-out", authenticate ,userServices.logout);
+userRouter.get("/:id", authenticate, authorize(["admin"]), userServices.getUserById);
 userRouter.patch("/me", authenticate, userServices.updateProfile);
+userRouter.patch("/:id", authenticate, authorize(["admin"]), userServices.updateUserByAdmin);
 userRouter.delete("/me/soft", authenticate, userServices.softDelete);
 userRouter.delete("/:id/soft", authenticate, authorize(["admin"]), userServices.softDelete);
 userRouter.delete("/:id/hard", authenticate, authorize(["admin"]), userServices.hardDelete);
-userRouter.get("/log-out", authenticate ,userServices.logout);

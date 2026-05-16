@@ -50,8 +50,8 @@ userSchema.pre<IUser>('save', async function () {
 
 userSchema.pre(["findOne", "find"], function () {
   const { paranoid, ...rest } = this.getQuery();
-  if (paranoid == true) {
-    this.setQuery({ deleteAt: { $exists: false }, rest });
+  if (paranoid === true) {
+    this.setQuery(rest);
   } else this.setQuery({ deletedAt: null, ...rest });
 });
 

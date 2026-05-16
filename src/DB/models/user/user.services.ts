@@ -11,8 +11,14 @@ class UserServices {
   }
 
   async listUsers(req: Request, res: Response, _next: NextFunction) {
-    const users = await UserModel.find({}).select("-password").sort({ createdAt: -1 }).lean();
+    const users = await UserModel.find({ paranoid: true }).select("-password").sort({ createdAt: -1 }).lean();
     SuccessResponse({ res, data: users });
+  }
+
+  async getUserById(req: Request, res: Response, _next: NextFunction) {
+    const user = await UserModel.findById(req.params.id).select("-password").lean();
+    if (!user) ErrorNotFound("user not found");
+    SuccessResponse({ res, data: user });
   }
 
   async updateProfile(req: Request, res: Response, _next: NextFunction) {
@@ -22,6 +28,17 @@ class UserServices {
       if (req.body[key] !== undefined) update[key] = req.body[key];
     }
     const user = await UserModel.findByIdAndUpdate(req.user?.id, update, { new: true }).select("-password");
+    if (!user) ErrorNotFound("user not found");
+    SuccessResponse({ res, data: user });
+  }
+
+  async updateUserByAdmin(req: Request, res: Response, _next: NextFunction) {
+    const allowed = ["userName", "age", "phone", "address", "gender", "role", "friends"] as const;
+    const update: Record<string, unknown> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) update[key] = req.body[key];
+    }
+    const user = await UserModel.findByIdAndUpdate(req.params.id, update, { new: true }).select("-password");
     if (!user) ErrorNotFound("user not found");
     SuccessResponse({ res, data: user });
   }
