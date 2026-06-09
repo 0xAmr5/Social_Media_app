@@ -1,40 +1,33 @@
+
 import express from "express";
 import type { Request,Response,NextFunction } from "express";
 import { pipeline } from "node:stream/promises";
 import cors from "cors";
 import helmet from "helmet";
 import {rateLimit} from "express-rate-limit";
-import { graphql } from "graphql";
-import z from "zod";
+import { createHandler } from "graphql-http/lib/use/express";
 import { PORT } from "./config/config.service";
-import { globalErrorHandler, appError } from "./common/utils/global-error-handler";
+import { globalErrorHandler } from "./common/utils/global-error-handler";
+import {appError} from "./common/utils/global-error-handler";
 import authRouter from "./modules/auth/auth.controller";
+import chatRouter from "./modules/chat/chat.controller";
 import connectDb from "./DB/ConnectionDB";
-import redisService from "./common/service/redis.service";
+import redisService from "./common/utils/redis.service";
 import s3Service from "./common/service/s3Services";
 import commentRouter from "./modules/comments/comment.controller";
 import { buildGraphqlContext } from "./modules/graphql/graphql.context";
 import postRouter from "./DB/models/posts/post.controller";
 import schema from "./modules/graphql/graphql.schema";
 import userRouter from "./modules/user/user.controller";
-import storyRouter from "./modules/stories/story.controller";
-import notificationRouter from "./modules/notifications/notification.controller";
 import notificationService from "./modules/notifications/notification.service";
 import { SuccessResponse } from "./common/utils/global-error-handler";
-import { validationMiddleWare } from "./common/middleware/validation";
+import socketGateway from "./realtime/socket.gateway";
 const app: express.Application = express();
 const port=PORT;
-const sendNotificationSchema = {
-    body: z.object({
-        token: z.string().trim().min(1)
-    })
-};
 
 const bootstrap = async () => {
 await connectDb();
-await redisService.connect().catch(() => {
-    console.log("Redis skipped");
-});
+await redisService.connect();
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
@@ -51,41 +44,19 @@ app.use(cors());
 app.use(limiter);
 app.use(express.json());
 app.use("/auth", authRouter);
+app.use("/chat", chatRouter);
 app.use("/comments", commentRouter);
 app.use("/posts", postRouter);
 app.use("/users", userRouter);
-app.use("/stories", storyRouter);
-app.use("/notifications", notificationRouter);
 
 
-app.use("/graphql", async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const { query, variables, operationName } = {
-            ...req.query,
-            ...(req.body ?? {})
-        } as {
-            query?: string;
-            variables?: Record<string, unknown>;
-            operationName?: string;
-        };
-
-        if (!query) {
-            throw new appError("GraphQL query is required", 400);
-        }
-
-        const result = await graphql({
-            schema,
-            source: query,
-            variableValues: variables,
-            operationName,
-            contextValue: buildGraphqlContext(req)
-        });
-
-        res.status(result.errors?.length ? 400 : 200).json(result);
-    } catch (error) {
-        next(error);
-    }
-});
+app.use(
+    "/graphql",
+    createHandler({
+        schema,
+        context: (req) => buildGraphqlContext(req.raw)
+    })
+);
 
 app.get("/", (req:Request, res:Response,next:NextFunction) => {
     res.json({ message: "Welcome to the Social Media App " });
@@ -117,7 +88,7 @@ app.get("/upload/*path", async (req:Request, res:Response, next:NextFunction) =>
 
 
 
-app.post("/send-notification", validationMiddleWare(sendNotificationSchema), async (req:Request, res:Response,next:NextFunction) => {
+app.post("/send-notification", async (req:Request, res:Response,next:NextFunction) => {
     try {
         const { token } = req.body as { token?: string }
 
@@ -135,10 +106,8 @@ app.post("/send-notification", validationMiddleWare(sendNotificationSchema), asy
 
         return SuccessResponse({
             res,
-            data: {
-                message: "Notification sent successfully",
-                messageId
-            }
+            statusCode: 200,
+            data: { message: "Notification sent successfully", messageId }
         })
     } catch (error) {
         next(error)
@@ -152,11 +121,13 @@ app.use((req:Request, res:Response,next:NextFunction) => {
 
 app.use(globalErrorHandler)
 
-app.listen(port, () => {
+const httpServer = app.listen(port, () => {
     console.log(`Server is running on port ${port}`);   
 })
-}   
 
+await socketGateway.initIo(httpServer)
+
+}   
 
 
 export default bootstrap;
