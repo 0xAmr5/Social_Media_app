@@ -1,10 +1,14 @@
-import { HydratedDocument, Model, QueryFilter } from 'mongoose'
-
+import { HydratedDocument, Model, QueryFilter, UpdateQuery } from 'mongoose'
 class BaseRepository<TDocument> {
   constructor(protected readonly model: Model<TDocument>) {}
 
   async create(data: Partial<TDocument>): Promise<HydratedDocument<TDocument>> {
     return this.model.create(data)
+  }
+
+   async findOneAndUpdate({ filter, update, options }:
+     { filter: QueryFilter<TDocument>, update: UpdateQuery<TDocument>, options?: any }): Promise<HydratedDocument<TDocument> | null> {
+    return this.model.findOneAndUpdate(filter, update, options).exec() as unknown as Promise<HydratedDocument<TDocument> | null>
   }
 
   async findById(id: string): Promise<HydratedDocument<TDocument> | null> {

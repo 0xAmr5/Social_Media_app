@@ -13,3 +13,7 @@ export const signToken = (payload: Record<string, unknown>) => {
     { expiresIn: '10m' },
   )
 }
+
+export const verifyToken = (token: string) => {
+  return jwt.verify(token, JWT_SECRET)
+}
