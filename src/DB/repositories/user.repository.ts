@@ -10,6 +10,9 @@ type PaginateOptions = {
 }
 
 class userRepository extends BaseRepository<IUser> {
+  findAll(arg0: { filter: { _id: { $in: any }; friends: { $in: any[] } } }) {
+    throw new Error('Method not implemented.')
+  }
   constructor(protected readonly model: Model<IUser>=UserModel) {
     super(model)
   }

@@ -7,9 +7,9 @@ import userRepo from "../../DB/repo/user.repo";
 import { HydratedDocument } from "mongoose";
 import { IUser } from "../../DB/models/user.model";
 import cacheKeyEnum from "../enum/cacheKey.enum";
-import redisServices from "../service/redis.service";
+import redisServices from "../utils/redis.service";
 import { appError } from "../utils/global-error-handler";
-import redisService from "../service/redis.service";
+import redisService from "../utils/redis.service";
 import { RoleEnum } from "../enum/user.enum";
 import { JWT_SECRET } from "../../config/config.service";
 

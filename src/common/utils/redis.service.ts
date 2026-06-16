@@ -8,6 +8,7 @@ import {
   REDIS_USERNAME,
 } from '../../config/config.service'
 import { emailEnum } from '../enum/email.enum'
+import cacheKeyEnum from '../enum/cacheKey.enum'
 
 class RedisService {
   private readonly client: RedisClientType
@@ -218,6 +219,86 @@ class RedisService {
       console.error('fail to remove user socket ids', error)
       return 0
     }
+  }
+
+  // Additional methods for compatibility with service/redis.service
+  cacheKey = ({ filter, subject }: { filter: string, subject: string }) => {
+    return `${subject}::${filter}`
+  }
+
+  setKey = async ({ key, value, ttl = 60 }: { key: RedisArgument, value: any, ttl?: number }) => {
+    try {
+      const serializedValue = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+      if (ttl) {
+        return await this.client.set(key, serializedValue, { EX: ttl })
+      }
+      return await this.client.set(key, serializedValue)
+    } catch (error) {
+      console.error('fail to set key', error)
+      return null
+    }
+  }
+
+  getKey = async ({ key }: { key: string }) => {
+    try {
+      const value = await this.client.get(key)
+      if (!value) return null
+      try {
+        return JSON.parse(value)
+      } catch {
+        return value
+      }
+    } catch (error) {
+      console.error('fail to get key', error)
+      return null
+    }
+  }
+
+  keyExists = async ({ key }: { key: RedisArgument }) => {
+    return await this.client.exists(key)
+  }
+
+  getAllKeys = async (pattern: RedisArgument) => {
+    try {
+      return await this.client.keys(pattern)
+    } catch (error) {
+      console.error('fail to get all keys', error)
+      return []
+    }
+  }
+
+  getKeyTtl = async (key: RedisArgument) => {
+    try {
+      return await this.client.ttl(key)
+    } catch (error) {
+      console.error('fail to get key ttl', error)
+      return -1
+    }
+  }
+
+  incrKey = async (key: RedisArgument) => {
+    try {
+      return await this.client.incr(key)
+    } catch (error) {
+      console.error('fail to increment key', error)
+      return 0
+    }
+  }
+
+  addSet = async ({ filter, subject }: { filter: string, subject: string }, members: any) => {
+    return await this.client.sAdd(this.cacheKey({ filter, subject }), members)
+  }
+
+  getSet = async ({ filter, subject }: { filter: string, subject: string }) => {
+    return await this.client.sMembers(this.cacheKey({ filter, subject }))
+  }
+
+  deleteSet = async ({ filter, subject }: { filter: string, subject: string }, members: any) => {
+    return await this.client.sRem(this.cacheKey({ filter, subject }), members)
+  }
+
+  existsSet = async ({ filter, subject }: { filter: string, subject: string }) => {
+    return await this.client.sCard(this.cacheKey({ filter, subject }))
   }
 }
 

@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express'
-import redisService from '../../common/service/redis.service'
+import redisService from '../../common/utils/redis.service'
 import userRepository from '../../DB/repositories/user.repository'
 import { appError, SuccessResponse } from '../../common/utils/global-error-handler'
 import { GetUsersQuery, UpdateProfile } from './user.validation'
