@@ -1,162 +1,226 @@
-import { ErrorInteralServerError } from "../utils/global-error-handler";
-import { createClient, RedisArgument, RedisClientType } from "redis";
-import { REDIS_CLIENT } from "../../config/config.service";
-import cacheKeyEnum from "../enum/cacheKey.enum";
+import { Types } from 'mongoose'
+import { createClient, RedisArgument, RedisClientType } from 'redis'
+import {
+  REDIS_HOST,
+  REDIS_PASSWORD,
+  REDIS_PORT,
+  REDIS_URL,
+  REDIS_USERNAME,
+} from '../../config/config.service'
+import { emailEnum } from '../enum/email.enum'
 
-class redisService {
-  otp_key({ email, subject }: { email: string; subject: string }) {
-    return this.cacheKey({ filter: email, subject });
-  }
-  async setValue({ key, value, ttl }: { key: string; value: string; ttl: number }) {
-    return await this.setKey({ key, value, ttl });
-  }
-  async getValue(key: string) {
-    return await this.getKey({ key });
-  }
-  async isExist(revokedTokenKey: string) {
-    return (await this.keyExists({ key: revokedTokenKey })) > 0;
-  }
-  async addFCM(userId: unknown, token: string) {
-    return await this.addSet({ filter: String(userId), subject: cacheKeyEnum.fcm }, token);
-  }
-  async getFCMS(userId: unknown) {
-    return await this.getSet({ filter: String(userId), subject: cacheKeyEnum.fcm });
-  }
-  async removeFCMUser(userId: unknown) {
-    return await this.deleteKey({ key: this.cacheKey({ filter: String(userId), subject: cacheKeyEnum.fcm }) });
-  }
-  private readonly _client: RedisClientType;
+class RedisService {
+  private readonly client: RedisClientType
+  private isConnected = false
+
   constructor() {
-    this._client = createClient({
-      url: REDIS_CLIENT,
-    });
-    this.eventHandler();
+    const socketOptions = REDIS_HOST && REDIS_PORT ? { host: REDIS_HOST, port: REDIS_PORT } : undefined
+    const credentialOptions = {
+      ...(REDIS_USERNAME ? { username: REDIS_USERNAME } : {}),
+      ...(REDIS_PASSWORD ? { password: REDIS_PASSWORD } : {}),
+      ...(socketOptions ? { socket: socketOptions } : {}),
+    }
+
+    this.client = REDIS_URL
+      ? createClient({ url: REDIS_URL })
+      : createClient(credentialOptions)
+    this.handleEvent()
   }
 
   async connect() {
-    await this._client.connect();
-    console.log("connected to redis succeded");
+    if (this.isConnected) return
+    if (!REDIS_URL && (!REDIS_HOST || !REDIS_PORT)) return
+
+    await this.client.connect()
+    this.isConnected = true
+    console.log('Connected to Redis successfully!')
   }
 
-  eventHandler() {
-    this._client.on("error", () => {
-      ErrorInteralServerError("connection to redis failed");
-    });
+  handleEvent() {
+    this.client.on('error', error => {
+      console.log('Connected to Redis Failed!', error)
+    })
   }
 
-  private async keyExists({ key }: { key: RedisArgument }): Promise<number> {
-    return await this._client.exists(key);
+  revoked_key = ({ userId, jti }: { userId: Types.ObjectId, jti: string }) => {
+    return `revoke_token::${userId}::${jti}`
   }
 
-  cacheKey({ filter, subject }: { filter: string; subject: string }): string {
-    return `${subject}::${filter}`;
+  get_key = (userId: Types.ObjectId) => {
+    return `revoke_token::${userId}`
   }
 
-  async setKey({
-    key,
-    value,
-    ttl = 60,
-  }: {
-    key: RedisArgument;
-    value: any | RedisArgument;
-    ttl: number;
-  }) {
+  otp_key = ({ email, subject = emailEnum.confirmEmail }: {
+    email: string,
+    subject?: emailEnum
+  }) => {
+    return `otp::${email}::${subject}`
+  }
+
+  fcm_key = (userId: Types.ObjectId | string) => {
+    return `user:FCM:${userId}`
+  }
+
+  socketKey = (userId: Types.ObjectId | string) => {
+    return `user:Socket:${userId}`
+  }
+
+  setValue = async ({ key, value, ttl }: { key: RedisArgument, value: string, ttl?: number }) => {
     try {
-      value =
-        typeof value === "string"
-          ? value
-          : JSON.stringify(value, null, 2);
-      return await this._client.set(key, value, { EX: ttl });
-    } catch (err) {
-      ErrorInteralServerError(err);
-    }
-  }
-
-  async getKey({ key }: { key: string }): Promise<void | string> {
-    try {
-      if ((!this.keyExists({ key }) as unknown as number) > 0) {
-        ErrorInteralServerError("key expiered");
+      if (!this.isConnected) return null
+      if (ttl) {
+        return await this.client.set(key, value, { EX: ttl })
       }
-      const value = await this._client.get(key);
-      try {
-        return JSON.parse(value as string);
-      } catch (err) {
-        return value as string;
-      }
-    } catch (err) {
-      ErrorInteralServerError("failed to get the value from cache");
+      return await this.client.set(key, value)
+    } catch (error) {
+      console.error('fail to set operation', error)
+      return null
     }
   }
 
-  async getAllKeys(pattern: RedisArgument): Promise<String[] | any> {
+  update = async ({ key, value, ttl }: { key: RedisArgument, value: string, ttl: number }) => {
     try {
-      const value = await this._client.keys(pattern);
-      return value;
-    } catch (err) {
-      ErrorInteralServerError(err);
+      if (!this.isConnected) return 0
+      const isExists = await this.client.exists(key)
+      if (!isExists) return 0
+      return await this.client.set(key, value, { EX: ttl })
+    } catch (error) {
+      console.error('fail to update operation', error)
+      return null
     }
   }
 
-  async deleteKey(input: { key: RedisArgument } | RedisArgument) {
+  getValue = async (key: RedisArgument) => {
     try {
-      const key = typeof input === "object" && "key" in input ? input.key : input;
-      if ((!this.keyExists({ key }) as unknown as number) > 0) {
-        return;
-      }
-      const value = await this._client.del(await this.getAllKeys(key));
-      return value;
-    } catch (err) {
-      ErrorInteralServerError(err);
+      if (!this.isConnected) return null
+      return await this.client.get(key)
+    } catch (error) {
+      console.error('fail to get value', error)
+      return null
     }
   }
 
-  async getKeyTtl(key: RedisArgument) {
+  isExist = async (key: RedisArgument) => {
     try {
-      if ((!this.keyExists({ key }) as unknown as number) > 0) {
-        ErrorInteralServerError("key expiered");
-      }
-      const value = await this._client.ttl(key);
-      return value;
-    } catch (err) {
-      ErrorInteralServerError(err);
+      if (!this.isConnected) return 0
+      return await this.client.exists(key)
+    } catch (error) {
+      console.error('fail to check existence', error)
+      return 0
     }
   }
 
-  async incrKey(key: RedisArgument) {
+  deleteKey = async (key: RedisArgument) => {
     try {
-      await this._client.incr(key);
-    } catch (err) {
-      ErrorInteralServerError(err);
+      if (!this.isConnected) return 0
+      return await this.client.del(key)
+    } catch (error) {
+      console.error('fail to delete key', error)
+      return 0
     }
   }
 
-  // redis.RedisArgument, members: RedisVariadicArgument
-  async addSet({filter,subject} :{filter : string , subject : string} , members : any ) : Promise<number>{
-    return await this._client.sAdd(this.cacheKey({
-      filter ,
-      subject
-    }),members)
+  addFCM = async (userId: Types.ObjectId | string, fcmToken: string) => {
+    try {
+      if (!this.isConnected) return 0
+      return await this.client.sAdd(this.fcm_key(userId), fcmToken)
+    } catch (error) {
+      console.error('fail to add fcm token', error)
+      return 0
+    }
   }
-  async getSet({filter,subject} :{filter : string , subject : string}){
-    return await this._client.sMembers(this.cacheKey({
-      filter ,
-      subject
-    }))
-  }
-  async deleteSet({filter,subject} :{filter : string , subject : string} , members : any){
-    return await this._client.sRem(this.cacheKey({
-      filter ,
-      subject
-    }),members)
 
+  removeFCM = async (userId: Types.ObjectId | string, fcmToken: string) => {
+    try {
+      if (!this.isConnected) return 0
+      return await this.client.sRem(this.fcm_key(userId), fcmToken)
+    } catch (error) {
+      console.error('fail to remove fcm token', error)
+      return 0
+    }
   }
-  async existsSet({filter,subject} :{filter : string , subject : string}){
-    return await this._client.sCard(this.cacheKey({
-      filter ,
-      subject
-    }))
 
+  getFCMS = async (userId: Types.ObjectId | string) => {
+    try {
+      if (!this.isConnected) return []
+      return await this.client.sMembers(this.fcm_key(userId))
+    } catch (error) {
+      console.error('fail to get fcm tokens', error)
+      return []
+    }
+  }
+
+  hasFCMS = async (userId: Types.ObjectId | string) => {
+    try {
+      if (!this.isConnected) return 0
+      return await this.client.sCard(this.fcm_key(userId))
+    } catch (error) {
+      console.error('fail to count fcm tokens', error)
+      return 0
+    }
+  }
+
+  removeFCMUser = async (userId: Types.ObjectId | string) => {
+    try {
+      if (!this.isConnected) return 0
+      return await this.client.del(this.fcm_key(userId))
+    } catch (error) {
+      console.error('fail to remove user fcm tokens', error)
+      return 0
+    }
+  }
+
+  addSocket = async ({ userId, socketId }: { userId: Types.ObjectId | string, socketId: string }) => {
+    try {
+      if (!this.isConnected) return 0
+      return await this.client.sAdd(this.socketKey(userId), socketId)
+    } catch (error) {
+      console.error('fail to add socket id', error)
+      return 0
+    }
+  }
+
+  removeSocket = async ({ userId, socketId }: { userId: Types.ObjectId | string, socketId: string }) => {
+    try {
+      if (!this.isConnected) return 0
+      return await this.client.sRem(this.socketKey(userId), socketId)
+    } catch (error) {
+      console.error('fail to remove socket id', error)
+      return 0
+    }
+  }
+
+  getSockets = async (userId: Types.ObjectId | string) => {
+    try {
+      if (!this.isConnected) return []
+      return await this.client.sMembers(this.socketKey(userId))
+    } catch (error) {
+      console.error('fail to get socket ids', error)
+      return []
+    }
+  }
+
+  hasSockets = async (userId: Types.ObjectId | string) => {
+    try {
+      if (!this.isConnected) return 0
+      return await this.client.sCard(this.socketKey(userId))
+    } catch (error) {
+      console.error('fail to count socket ids', error)
+      return 0
+    }
+  }
+
+  removeSocketUser = async (userId: Types.ObjectId | string) => {
+    try {
+      if (!this.isConnected) return 0
+      return await this.client.del(this.socketKey(userId))
+    } catch (error) {
+      console.error('fail to remove user socket ids', error)
+      return 0
+    }
   }
 }
 
-export default new redisService();
+const redisService = new RedisService()
+
+export default redisService

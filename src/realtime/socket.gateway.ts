@@ -2,7 +2,7 @@ import type { Server as HttpServer } from 'node:http'
 import { Server } from 'socket.io'
 import redisService from '../common/utils/redis.service'
 import { verifyToken } from '../common/utils/security/token'
-import chatGateway from '../modules/chat/realtime/chat.gateway'
+import chatGateway from '../modules/chat/chat.gateway'
 
 const decodedToken = async (token: string) => {
   const user = verifyToken(token)
